@@ -67,14 +67,21 @@
       hasInitializedFromUrl = true;
       currentStep = 'loading';
       render();
-      await loadTournament(tournamentIdFromUrl);
-      if (!currentTournament) {
+      try {
+        await loadTournament(tournamentIdFromUrl);
+        if (!currentTournament) {
+          currentStep = 'start';
+          render();
+          stopSpectatorRefresh();
+          return;
+        }
+        startSpectatorRefresh();
+      } catch (error) {
+        console.error('Fehler beim Laden des Turniers aus URL:', error);
         currentStep = 'start';
         render();
         stopSpectatorRefresh();
-        return;
       }
-      startSpectatorRefresh();
     }
 
     function startSpectatorRefresh() {
@@ -82,8 +89,12 @@
         return;
       }
       stopSpectatorRefresh();
-      spectatorRefreshIntervalId = setInterval(() => {
-        loadTournament(tournamentIdFromUrl);
+      spectatorRefreshIntervalId = setInterval(async () => {
+        try {
+          await loadTournament(tournamentIdFromUrl);
+        } catch (error) {
+          console.error('Fehler beim automatischen Aktualisieren:', error);
+        }
       }, 5000);
     }
 
@@ -259,6 +270,8 @@
         if (input) {
           input.focus();
           input.select();
+        } else {
+          console.warn('Edit-Input-Element konnte nicht fokussiert werden');
         }
       }, 50);
     }
@@ -272,9 +285,11 @@
     // NEU: Namen speichern (wird vom Input aufgerufen)
     async function savePlayerName(playerId) {
       const input = document.getElementById('editPlayerInput');
-      if (input) {
-        await updateRegisteredPlayerName(playerId, input.value);
+      if (!input) {
+        console.error('Edit-Input-Element nicht gefunden');
+        return;
       }
+      await updateRegisteredPlayerName(playerId, input.value);
     }
 
     // Spieler löschen
@@ -710,14 +725,19 @@
         if (result && result.player1Score !== '' && result.player2Score !== '') {
           const score1 = parseInt(result.player1Score);
           const score2 = parseInt(result.player2Score);
-          
+
+          if (isNaN(score1) || isNaN(score2)) {
+            console.warn('Ungültige Punktzahl für Match:', match.id, score1, score2);
+            return;
+          }
+
           standings[match.player1].played++;
           standings[match.player2].played++;
           standings[match.player1].pointsFor += score1;
           standings[match.player1].pointsAgainst += score2;
           standings[match.player2].pointsFor += score2;
           standings[match.player2].pointsAgainst += score1;
-          
+
           if (score1 > score2) {
             standings[match.player1].wins++;
           } else if (score2 > score1) {
@@ -1302,8 +1322,13 @@
 
     async function addNewRegisteredPlayer() {
       const input = document.getElementById('newPlayerName');
+      if (!input) {
+        console.error('Input-Element "newPlayerName" nicht gefunden');
+        return;
+      }
+
       const name = input.value.trim();
-      
+
       if (!name) {
         alert('Bitte einen Namen eingeben!');
         return;
@@ -1331,6 +1356,11 @@
     function updatePlayerSetup(index, registeredPlayerId) {
       if (registeredPlayerId) {
         const player = registeredPlayers.find(p => p.id === registeredPlayerId);
+        if (!player) {
+          console.error('Spieler nicht gefunden:', registeredPlayerId);
+          alert('Fehler: Spieler nicht gefunden!');
+          return;
+        }
         playerSetup[index] = {
           registeredPlayerId: registeredPlayerId,
           name: player.name
@@ -1401,7 +1431,11 @@
 
     function render() {
       const app = document.getElementById('app');
-      
+      if (!app) {
+        console.error('App-Element nicht gefunden');
+        return;
+      }
+
       if (currentStep === 'start') {
         app.innerHTML = renderStartScreen();
       } else if (currentStep === 'players') {
@@ -1414,8 +1448,9 @@
         app.innerHTML = renderArchiveScreen();
       } else if (currentStep === 'setup') {
         app.innerHTML = renderSetupScreen();
-        if (document.getElementById('tournamentNameInput')) {
-          document.getElementById('tournamentNameInput').value = tournamentName;
+        const tournamentInput = document.getElementById('tournamentNameInput');
+        if (tournamentInput) {
+          tournamentInput.value = tournamentName;
         }
       } else if (currentStep === 'tournament') {
         app.innerHTML = renderTournamentScreen();
