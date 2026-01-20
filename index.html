@@ -20,6 +20,9 @@
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtYndldmpuY3VleWtpa3JmZGdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NDQwOTMsImV4cCI6MjA4NDQyMDA5M30.96J60Y7bG8TaZuXGRO5r792PTGSZ7jnfOFzpcz_hT70';
     const urlParams = new URLSearchParams(window.location.search);
     const tournamentIdFromUrl = urlParams.get('tournament');
+    const isSpectatorMode = ['spectator', 'tv', '1'].includes(urlParams.get('view'));
+    let hasInitializedFromUrl = false;
+    let spectatorRefreshIntervalId = null;
     const isSpectatorMode = urlParams.get('view') === 'spectator';
     let hasInitializedFromUrl = false;
     
@@ -68,6 +71,26 @@
       if (!currentTournament) {
         currentStep = 'start';
         render();
+        stopSpectatorRefresh();
+        return;
+      }
+      startSpectatorRefresh();
+    }
+
+    function startSpectatorRefresh() {
+      if (!isSpectatorMode || !tournamentIdFromUrl || document.hidden) {
+        return;
+      }
+      stopSpectatorRefresh();
+      spectatorRefreshIntervalId = setInterval(() => {
+        loadTournament(tournamentIdFromUrl);
+      }, 5000);
+    }
+
+    function stopSpectatorRefresh() {
+      if (spectatorRefreshIntervalId) {
+        clearInterval(spectatorRefreshIntervalId);
+        spectatorRefreshIntervalId = null;
       }
     }
 
@@ -82,7 +105,8 @@
 
       const options = {
         method,
-        headers
+        headers,
+        cache: 'no-store'
       };
 
       if (body) {
@@ -1402,6 +1426,13 @@
     if (tournamentIdFromUrl) {
       currentStep = 'loading';
     }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopSpectatorRefresh();
+      } else {
+        startSpectatorRefresh();
+      }
+    });
     render();
     initializeFromUrl();
   </script>
