@@ -18,6 +18,10 @@
   <script>
     const SUPABASE_URL = 'https://bmbwevjncueykikrfdgl.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtYndldmpuY3VleWtpa3JmZGdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NDQwOTMsImV4cCI6MjA4NDQyMDA5M30.96J60Y7bG8TaZuXGRO5r792PTGSZ7jnfOFzpcz_hT70';
+    const urlParams = new URLSearchParams(window.location.search);
+    const tournamentIdFromUrl = urlParams.get('tournament');
+    const isSpectatorMode = urlParams.get('view') === 'spectator';
+    let hasInitializedFromUrl = false;
     
     // Speicher-Benachrichtigung anzeigen
     function showSaveNotification() {
@@ -29,6 +33,42 @@
         notification.style.transform = 'translateX(400px)';
         notification.style.opacity = '0';
       }, 2000);
+    }
+
+    function buildSpectatorLink() {
+      if (!currentTournament?.id) {
+        return null;
+      }
+      const baseUrl = `${window.location.origin}${window.location.pathname}`;
+      return `${baseUrl}?tournament=${currentTournament.id}&view=spectator`;
+    }
+
+    async function copySpectatorLink() {
+      const spectatorLink = buildSpectatorLink();
+      if (!spectatorLink) {
+        alert('Kein Turnier geladen. Bitte starte zuerst ein Turnier.');
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(spectatorLink);
+        alert('Zuschauer-Link kopiert!');
+      } catch (error) {
+        console.error('Fehler beim Kopieren:', error);
+        prompt('Zuschauer-Link kopieren:', spectatorLink);
+      }
+    }
+
+    async function initializeFromUrl() {
+      if (hasInitializedFromUrl || !tournamentIdFromUrl) return;
+      hasInitializedFromUrl = true;
+      currentStep = 'loading';
+      render();
+      await loadTournament(tournamentIdFromUrl);
+      if (!currentTournament) {
+        currentStep = 'start';
+        render();
+      }
     }
 
     // Supabase REST API Hilfsfunktionen
@@ -1076,7 +1116,7 @@
           <div>
             <div class="flex items-center justify-between mb-2 md:mb-3">
               <h3 class="text-lg md:text-xl font-bold text-yellow-400">${round}</h3>
-              ${round !== 'Runde 1' ? `
+              ${!isSpectatorMode && round !== 'Runde 1' ? `
                 <button onclick="deleteRound('${round}')" class="bg-red-500/80 hover:bg-red-500 text-white py-1 px-3 rounded-lg text-sm transition-all duration-300 font-semibold">
                   Runde löschen
                 </button>
@@ -1093,8 +1133,8 @@
                       type="number" 
                       min="0" 
                       value="${results[match.id]?.player1Score || ''}"
-                      onchange="updateResult('${match.id}', 'player1Score', this.value)"
-                      class="w-16 md:w-20 px-2 md:px-3 py-2 bg-white/10 border-2 border-white/20 rounded-lg text-center font-bold text-base md:text-lg text-white focus:border-yellow-400 focus:outline-none"
+                      ${isSpectatorMode ? 'disabled' : `onchange="updateResult('${match.id}', 'player1Score', this.value)"`}
+                      class="w-16 md:w-20 px-2 md:px-3 py-2 bg-white/10 border-2 border-white/20 rounded-lg text-center font-bold text-base md:text-lg text-white focus:border-yellow-400 focus:outline-none ${isSpectatorMode ? 'opacity-70 cursor-not-allowed' : ''}"
                       placeholder="0"
                     />
                     <span class="text-xl md:text-2xl font-bold text-yellow-400">:</span>
@@ -1102,8 +1142,8 @@
                       type="number" 
                       min="0" 
                       value="${results[match.id]?.player2Score || ''}"
-                      onchange="updateResult('${match.id}', 'player2Score', this.value)"
-                      class="w-16 md:w-20 px-2 md:px-3 py-2 bg-white/10 border-2 border-white/20 rounded-lg text-center font-bold text-base md:text-lg text-white focus:border-yellow-400 focus:outline-none"
+                      ${isSpectatorMode ? 'disabled' : `onchange="updateResult('${match.id}', 'player2Score', this.value)"`}
+                      class="w-16 md:w-20 px-2 md:px-3 py-2 bg-white/10 border-2 border-white/20 rounded-lg text-center font-bold text-base md:text-lg text-white focus:border-yellow-400 focus:outline-none ${isSpectatorMode ? 'opacity-70 cursor-not-allowed' : ''}"
                       placeholder="0"
                     />
                   </div>
@@ -1130,10 +1170,22 @@
                     <h1 class="text-2xl md:text-3xl lg:text-4xl font-bold text-white">${currentTournament?.name || 'Turnier'}</h1>
                   </div>
                 </div>
-                <button onclick="resetTournament()" class="bg-red-500/80 hover:bg-red-500 text-white py-2 px-4 md:px-6 rounded-xl transition-all duration-300 font-semibold hover:scale-110 active:scale-95 text-sm md:text-base">
-                  Startseite
-                </button>
+                <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                  ${!isSpectatorMode ? `
+                    <button onclick="copySpectatorLink()" class="bg-white/10 hover:bg-white/20 text-white py-2 px-4 md:px-6 rounded-xl transition-all duration-300 font-semibold border border-white/20 hover:scale-105 text-sm md:text-base">
+                      Link teilen 🔗
+                    </button>
+                    <button onclick="resetTournament()" class="bg-red-500/80 hover:bg-red-500 text-white py-2 px-4 md:px-6 rounded-xl transition-all duration-300 font-semibold hover:scale-110 active:scale-95 text-sm md:text-base">
+                      Startseite
+                    </button>
+                  ` : ''}
+                </div>
               </div>
+              ${isSpectatorMode ? `
+                <div class="mb-6 rounded-xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-3 text-yellow-200 text-sm md:text-base">
+                  Zuschaueransicht aktiv: Ergebnisse sind schreibgeschützt.
+                </div>
+              ` : ''}
 
               <div class="mb-6 md:mb-8">
                 <div class="flex items-center mb-3 md:mb-4">
@@ -1163,9 +1215,11 @@
               <div>
                 <div class="flex items-center justify-between mb-3 md:mb-4">
                   <h2 class="text-xl md:text-2xl font-bold text-white">Spielplan & Ergebnisse</h2>
-                  <button onclick="addNewRound()" class="bg-gradient-to-r from-yellow-400 to-yellow-300 text-blue-900 py-2 px-4 md:px-6 rounded-xl hover:scale-105 active:scale-95 transition-all duration-300 font-bold text-sm md:text-base">
-                    + Weitere Runde
-                  </button>
+                  ${!isSpectatorMode ? `
+                    <button onclick="addNewRound()" class="bg-gradient-to-r from-yellow-400 to-yellow-300 text-blue-900 py-2 px-4 md:px-6 rounded-xl hover:scale-105 active:scale-95 transition-all duration-300 font-bold text-sm md:text-base">
+                      + Weitere Runde
+                    </button>
+                  ` : ''}
                 </div>
                 <div class="space-y-4 md:space-y-6">
                   ${matchesHTML}
@@ -1290,6 +1344,9 @@
     }
 
     async function updateResult(matchId, field, value) {
+      if (isSpectatorMode) {
+        return;
+      }
       if (!results[matchId]) {
         results[matchId] = { player1Score: '', player2Score: '' };
       }
@@ -1327,6 +1384,8 @@
         app.innerHTML = renderPlayersScreen();
       } else if (currentStep === 'stats-loading') {
         app.innerHTML = '<div class="min-h-screen flex items-center justify-center text-white text-xl">Lade Statistiken...</div>';
+      } else if (currentStep === 'loading') {
+        app.innerHTML = '<div class="min-h-screen flex items-center justify-center text-white text-xl">Lade Turnier...</div>';
       } else if (currentStep === 'archive') {
         app.innerHTML = renderArchiveScreen();
       } else if (currentStep === 'setup') {
@@ -1340,7 +1399,11 @@
     }
 
     // Initial render
+    if (tournamentIdFromUrl) {
+      currentStep = 'loading';
+    }
     render();
+    initializeFromUrl();
   </script>
 </body>
 </html>
