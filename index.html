@@ -23,6 +23,8 @@
     const isSpectatorMode = ['spectator', 'tv', '1'].includes(urlParams.get('view'));
     let hasInitializedFromUrl = false;
     let spectatorRefreshIntervalId = null;
+    const isSpectatorMode = urlParams.get('view') === 'spectator';
+    let hasInitializedFromUrl = false;
     
     // Speicher-Benachrichtigung anzeigen
     function showSaveNotification() {
