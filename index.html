@@ -216,8 +216,8 @@
     // Elo-Daten für Turnier laden
     async function loadTournamentElo(tournamentId) {
       try {
-        // Tournament_players mit Join auf players_global - WICHTIG: registered_player_id verwenden!
-        const endpoint = `tournament_players?select=player_index,registered_player_id,players_global(name,current_elo,elo_games)&tournament_id=eq.${tournamentId}`;
+        // Tournament_players mit Join auf players_global - WICHTIG: Join auf players_global über player_id
+        const endpoint = `tournament_players?select=player_index,player_id,players_global(name,current_elo,elo_games)&tournament_id=eq.${tournamentId}`;
         const data = await supabaseRequest(endpoint);
 
         if (!data || data.length === 0) {
