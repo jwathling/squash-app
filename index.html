@@ -504,6 +504,8 @@
           let elo = 1000;
           if (p.registered_player_id && playerEloMap[p.registered_player_id]) {
             elo = playerEloMap[p.registered_player_id].elo;
+          } else if (!p.registered_player_id) {
+            console.warn('Spieler ohne registeredPlayerId beim Laden gefunden:', p.name);
           }
 
           return {
@@ -747,8 +749,12 @@
     async function updateMatchResult(matchId, player1Score, player2Score) {
       try {
         const match = matches.find(m => m.id === matchId);
-        if (!match) return;
+        if (!match) {
+          console.error('Match nicht gefunden:', matchId);
+          return;
+        }
 
+        // Ergebnis in Datenbank speichern
         await supabaseRequest(
           `matches?tournament_id=eq.${currentTournament.id}&match_id=eq.${matchId}`,
           'PATCH',
@@ -761,24 +767,32 @@
         // Elo neu berechnen (nur im Nicht-Spectator-Modus)
         if (!isSpectatorMode) {
           try {
+            // RPC-Funktion aufrufen, um Elo neu zu berechnen
             await supabaseRequest('rpc/recompute_elo', 'POST', {});
+
             // Elo-Daten neu laden
             await loadTournamentElo(currentTournament.id);
-            // Spieler-Elo aktualisieren
+
+            // Spieler-Elo in lokaler Liste aktualisieren
             players.forEach(player => {
               if (player.registeredPlayerId && playerEloMap[player.registeredPlayerId]) {
                 player.elo = playerEloMap[player.registeredPlayerId].elo;
+              } else if (!player.registeredPlayerId) {
+                // Warnung für Spieler ohne registeredPlayerId
+                console.warn('Spieler ohne registeredPlayerId gefunden:', player.name);
+                player.elo = 1000; // Fallback auf Standardwert
               }
             });
           } catch (eloError) {
             console.error('Fehler beim Neuberechnen der Elo-Werte:', eloError);
-            // Nicht crashen, nur Warnung
+            alert('Warnung: Elo-Werte konnten nicht aktualisiert werden. Bitte Seite neu laden.');
           }
         }
 
         showSaveNotification();
       } catch (error) {
-        console.error('Fehler beim Aktualisieren:', error);
+        console.error('Fehler beim Aktualisieren des Spielergebnisses:', error);
+        alert('Fehler beim Speichern des Ergebnisses: ' + error.message);
       }
     }
 
@@ -790,8 +804,8 @@
         wins: 0,
         pointsFor: 0,
         pointsAgainst: 0,
-        pointDiff: 0,
-        elo: player.elo || 1000
+        pointDiff: 0
+        // elo ist bereits in player enthalten
       }));
 
       matches.forEach(match => {
@@ -1248,8 +1262,9 @@
           <td class="py-2 md:py-3 px-2 md:px-4 font-semibold text-yellow-400 text-base md:text-lg">
             ${index === 0 ? '👑 ' : ''}${index + 1}
           </td>
-          <td class="py-2 md:py-3 px-2 md:px-4 font-semibold text-white text-sm md:text-base">${player.name}</td>
-          <td class="py-2 md:py-3 px-2 md:px-4 text-center font-semibold text-yellow-300 text-sm md:text-base">${player.elo || 1000}</td>
+          <td class="py-2 md:py-3 px-2 md:px-4 font-semibold text-white text-sm md:text-base">
+            ${player.name} <span class="text-yellow-300 font-normal">(${player.elo || 1000})</span>
+          </td>
           <td class="py-2 md:py-3 px-2 md:px-4 text-center text-blue-200 text-sm md:text-base">${player.played}</td>
           <td class="py-2 md:py-3 px-2 md:px-4 text-center font-semibold text-white text-sm md:text-base">${player.wins}</td>
           <td class="py-2 md:py-3 px-2 md:px-4 text-center text-sm md:text-base">
@@ -1353,8 +1368,7 @@
                     <thead>
                       <tr class="bg-gradient-to-r from-blue-600 to-blue-700">
                         <th class="py-2 md:py-3 px-2 md:px-4 text-left font-semibold text-yellow-300 text-sm md:text-base">Platz</th>
-                        <th class="py-2 md:py-3 px-2 md:px-4 text-left font-semibold text-yellow-300 text-sm md:text-base">Name</th>
-                        <th class="py-2 md:py-3 px-2 md:px-4 text-center font-semibold text-yellow-300 text-sm md:text-base">Elo</th>
+                        <th class="py-2 md:py-3 px-2 md:px-4 text-left font-semibold text-yellow-300 text-sm md:text-base">Name (Elo)</th>
                         <th class="py-2 md:py-3 px-2 md:px-4 text-center font-semibold text-yellow-300 text-sm md:text-base">Spiele</th>
                         <th class="py-2 md:py-3 px-2 md:px-4 text-center font-semibold text-yellow-300 text-sm md:text-base">Siege</th>
                         <th class="py-2 md:py-3 px-2 md:px-4 text-center font-semibold text-yellow-300 text-sm md:text-base">Diff.</th>
