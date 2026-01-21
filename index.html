@@ -214,85 +214,90 @@
     }
 
     // Elo-Daten für Turnier laden
-    async function loadTournamentElo(tournamentId) {
-      try {
-        // Tournament_players mit Join auf players_global - WICHTIG: Join auf players_global über player_id
-        const endpoint = `tournament_players?select=player_index,player_id,players_global(name,current_elo,elo_games)&tournament_id=eq.${tournamentId}`;
-        const data = await supabaseRequest(endpoint);
+async function loadTournamentElo(tournamentId) {
+  try {
+    // tournament_players JOIN players_global über player_id
+    const endpoint =
+      `tournament_players?select=player_index,player_id,players_global(name,current_elo,elo_games)` +
+      `&tournament_id=eq.${tournamentId}&order=player_index.asc`;
 
-        if (!data || data.length === 0) {
-          console.warn('Keine Elo-Daten gefunden für Turnier:', tournamentId);
-          playerEloMap = {};
-          return {};
+    const data = await supabaseRequest(endpoint);
+
+    if (!data || data.length === 0) {
+      console.warn('Keine Elo-Daten gefunden für Turnier:', tournamentId);
+      playerEloMap = {};
+      return {};
+    }
+
+    // Map: Key = players_global.id (= tournament_players.player_id)
+    const eloMap = {};
+
+    // Prüfen ob Embed funktioniert hat
+    const hasEmbeddedData = data.some(entry => entry.players_global !== null);
+
+    if (hasEmbeddedData) {
+      // Standard-Weg: Mit Embed
+      data.forEach(entry => {
+        const playerId = entry.player_id;
+        const pg = entry.players_global;
+
+        if (playerId && pg) {
+          eloMap[playerId] = {
+            elo: pg.current_elo ?? 1000,
+            elo_games: pg.elo_games ?? 0,
+            name: pg.name,
+            player_index: entry.player_index
+          };
         }
+      });
+    } else {
+      // Fallback: Embed funktioniert nicht, 2-Step-Lösung
+      console.log('Embed fehlgeschlagen, verwende 2-Step-Lösung...');
 
-        // Map erstellen: Key = registered_player_id (wichtig für korrekten Lookup!)
-        const eloMap = {};
+      // Alle player_ids sammeln (FK auf players_global.id)
+      const playerIds = data
+        .map(entry => entry.player_id)
+        .filter(id => id !== null);
 
-        // Prüfen ob Embed funktioniert hat
-        const hasEmbeddedData = data.some(entry => entry.players_global !== null);
+      if (playerIds.length > 0) {
+        const idsParam = playerIds.map(id => `"${id}"`).join(',');
+        const playersGlobalEndpoint =
+          `players_global?select=id,name,current_elo,elo_games&id=in.(${idsParam})`;
 
-        if (hasEmbeddedData) {
-          // Standard-Weg: Mit Embed
-          data.forEach(entry => {
-            const regId = entry.registered_player_id;
-            const pg = entry.players_global;
-            if (regId && pg) {
-              eloMap[regId] = {
-                elo: pg.current_elo || 1000,
-                elo_games: pg.elo_games || 0,
-                name: pg.name,
-                player_index: entry.player_index
-              };
-            }
-          });
-        } else {
-          // Fallback: Embed funktioniert nicht, 2-Step-Lösung
-          console.log('Embed fehlgeschlagen, verwende 2-Step-Lösung...');
+        const playersGlobalData = await supabaseRequest(playersGlobalEndpoint);
 
-          // Alle registered_player_ids sammeln
-          const registeredPlayerIds = data
-            .map(entry => entry.registered_player_id)
-            .filter(id => id !== null);
+        // Map für schnellen Zugriff auf players_global Daten
+        const playersGlobalMap = {};
+        (playersGlobalData || []).forEach(pg => {
+          playersGlobalMap[pg.id] = pg;
+        });
 
-          if (registeredPlayerIds.length > 0) {
-            // Players_global in einem zweiten Request laden
-            const idsParam = registeredPlayerIds.map(id => `"${id}"`).join(',');
-            const playersGlobalEndpoint = `players_global?select=id,name,current_elo,elo_games&id=in.(${idsParam})`;
-            const playersGlobalData = await supabaseRequest(playersGlobalEndpoint);
+        data.forEach(entry => {
+          const playerId = entry.player_id;
+          const pg = playersGlobalMap[playerId];
 
-            // Map für schnellen Zugriff auf players_global Daten
-            const playersGlobalMap = {};
-            (playersGlobalData || []).forEach(pg => {
-              playersGlobalMap[pg.id] = pg;
-            });
-
-            // EloMap befüllen
-            data.forEach(entry => {
-              const regId = entry.registered_player_id;
-              if (regId && playersGlobalMap[regId]) {
-                const pg = playersGlobalMap[regId];
-                eloMap[regId] = {
-                  elo: pg.current_elo || 1000,
-                  elo_games: pg.elo_games || 0,
-                  name: pg.name,
-                  player_index: entry.player_index
-                };
-              }
-            });
+          if (playerId && pg) {
+            eloMap[playerId] = {
+              elo: pg.current_elo ?? 1000,
+              elo_games: pg.elo_games ?? 0,
+              name: pg.name,
+              player_index: entry.player_index
+            };
           }
-        }
-
-        playerEloMap = eloMap;
-        // Debug: Zeige Keys für Troubleshooting
-        // console.log('EloMap Keys:', Object.keys(playerEloMap));
-        return eloMap;
-      } catch (error) {
-        console.error('Fehler beim Laden der Elo-Daten:', error);
-        playerEloMap = {};
-        return {};
+        });
       }
     }
+
+    playerEloMap = eloMap;
+    return eloMap;
+
+  } catch (error) {
+    console.error('Fehler beim Laden der Elo-Daten:', error);
+    playerEloMap = {};
+    return {};
+  }
+}
+
 
     // Neuen Spieler registrieren
     async function registerPlayer(name) {
@@ -398,7 +403,11 @@
         const playerGlobal = playerGlobalData && playerGlobalData[0] ? playerGlobalData[0] : null;
 
         // Alle Turniere des Spielers laden
-        const playerEntries = await supabaseRequest(`players?registered_player_id=eq.${playerId}&select=tournament_id,name`);
+        const playerEntries = await supabaseRequest(
+  `tournament_players?player_id=eq.${playerId}&select=tournament_id,player_index`
+);
+
+
 
         if (!playerEntries || playerEntries.length === 0) {
           return {
@@ -428,12 +437,19 @@
           const tournaments = await supabaseRequest(`tournaments?id=eq.${tournamentId}`);
           const tournament = tournaments[0];
           
-          const allPlayers = await supabaseRequest(`players?tournament_id=eq.${tournamentId}&order=player_index.asc`);
-          const allMatches = await supabaseRequest(`matches?tournament_id=eq.${tournamentId}`);
-          
-          // Spieler finden
-          const playerInTournament = allPlayers.find(p => p.registered_player_id === playerId);
-          if (!playerInTournament) continue;
+          // Players im Turnier laden (neues Modell: tournament_players -> players_global)
+const allPlayers = await supabaseRequest(`tournament_players?select=id,player_id,player_index,players_global(name)&tournament_id=eq.${tournamentId}&order=player_index.asc`
+);
+
+// Matches laden (bleibt gleich)
+const allMatches = await supabaseRequest(
+  `matches?tournament_id=eq.${tournamentId}`
+);
+
+// Spieler finden (playerId ist players_global.id)
+const playerInTournament = allPlayers.find(p => p.player_id === playerId);
+if (!playerInTournament) continue;
+
 
           // Statistiken berechnen
           let wins = 0;
