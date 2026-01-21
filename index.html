@@ -158,7 +158,7 @@
     let registeredPlayers = [];
     let selectedPlayerForStats = null;
     let editingPlayerId = null; // NEU: Für das Bearbeiten von Spielernamen
-    let playerEloMap = {}; // Elo-Daten: Key = player_id (global), Value = { elo, elo_games, name, player_index }
+    let playerEloMap = {}; // Elo-Daten: Key = registered_player_id, Value = { elo, elo_games, name, player_index }
 
     // Hilfsfunktion für optimierten Spielplan
     function optimizeMatchSchedule(matchList) {
@@ -216,29 +216,76 @@
     // Elo-Daten für Turnier laden
     async function loadTournamentElo(tournamentId) {
       try {
-        // Tournament_players mit Join auf players_global
-        const endpoint = `tournament_players?select=player_index,player_id,players_global(name,current_elo,elo_games)&tournament_id=eq.${tournamentId}&order=player_index.asc`;
+        // Tournament_players mit Join auf players_global - WICHTIG: registered_player_id verwenden!
+        const endpoint = `tournament_players?select=player_index,registered_player_id,players_global(name,current_elo,elo_games)&tournament_id=eq.${tournamentId}`;
         const data = await supabaseRequest(endpoint);
 
         if (!data || data.length === 0) {
           console.warn('Keine Elo-Daten gefunden für Turnier:', tournamentId);
+          playerEloMap = {};
           return {};
         }
 
-        // Map erstellen: Key = player_id, Value = Elo-Info
+        // Map erstellen: Key = registered_player_id (wichtig für korrekten Lookup!)
         const eloMap = {};
-        data.forEach(entry => {
-          if (entry.player_id && entry.players_global) {
-            eloMap[entry.player_id] = {
-              elo: entry.players_global.current_elo || 1000,
-              elo_games: entry.players_global.elo_games || 0,
-              name: entry.players_global.name,
-              player_index: entry.player_index
-            };
+
+        // Prüfen ob Embed funktioniert hat
+        const hasEmbeddedData = data.some(entry => entry.players_global !== null);
+
+        if (hasEmbeddedData) {
+          // Standard-Weg: Mit Embed
+          data.forEach(entry => {
+            const regId = entry.registered_player_id;
+            const pg = entry.players_global;
+            if (regId && pg) {
+              eloMap[regId] = {
+                elo: pg.current_elo || 1000,
+                elo_games: pg.elo_games || 0,
+                name: pg.name,
+                player_index: entry.player_index
+              };
+            }
+          });
+        } else {
+          // Fallback: Embed funktioniert nicht, 2-Step-Lösung
+          console.log('Embed fehlgeschlagen, verwende 2-Step-Lösung...');
+
+          // Alle registered_player_ids sammeln
+          const registeredPlayerIds = data
+            .map(entry => entry.registered_player_id)
+            .filter(id => id !== null);
+
+          if (registeredPlayerIds.length > 0) {
+            // Players_global in einem zweiten Request laden
+            const idsParam = registeredPlayerIds.map(id => `"${id}"`).join(',');
+            const playersGlobalEndpoint = `players_global?select=id,name,current_elo,elo_games&id=in.(${idsParam})`;
+            const playersGlobalData = await supabaseRequest(playersGlobalEndpoint);
+
+            // Map für schnellen Zugriff auf players_global Daten
+            const playersGlobalMap = {};
+            (playersGlobalData || []).forEach(pg => {
+              playersGlobalMap[pg.id] = pg;
+            });
+
+            // EloMap befüllen
+            data.forEach(entry => {
+              const regId = entry.registered_player_id;
+              if (regId && playersGlobalMap[regId]) {
+                const pg = playersGlobalMap[regId];
+                eloMap[regId] = {
+                  elo: pg.current_elo || 1000,
+                  elo_games: pg.elo_games || 0,
+                  name: pg.name,
+                  player_index: entry.player_index
+                };
+              }
+            });
           }
-        });
+        }
 
         playerEloMap = eloMap;
+        // Debug: Zeige Keys für Troubleshooting
+        // console.log('EloMap Keys:', Object.keys(playerEloMap));
         return eloMap;
       } catch (error) {
         console.error('Fehler beim Laden der Elo-Daten:', error);
